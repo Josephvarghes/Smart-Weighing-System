@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMART WEIGHING SYSTEM</title>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
+
+<style>
+
+</style>
+<link rel="icon" href="img7.jpg" type="image/x-icon"> 
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<!-- Load necessary scripts -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@latest"></script>
+
+
+
+
+<style>
+body {
+    
+background-image: url(img7.jpg);
+
+font-family: Arial, sans-serif;
+margin: 0;
+padding: 0;
+background-color: #263937;
+color: #333;
+display: flex;
+justify-content: center;
+text-align: center;
+flex-direction: column;
+margin-top: 10%;
+}
+
+.smart{
+    font-size: 40px;
+    
+
+}
+.card{
+width: 500px;
+border-radius: 30px;
+margin: auto;
+padding: 30px;
+background-color: rgb(233, 242, 241);
+border-width: 10px;
+border-color: rgb(11, 10, 10);
+
+color:rgb(11, 10, 2);
+}
+
+button{
+width: 412px;
+background-color:rgb(2, 9, 92);
+color: #f4f1ea;
+padding: 10px;
+border-radius: 10px;
+font-size: large;
+margin: 10PX;
+transition: background-color 0.3s ease;
+
+}
+button:hover {
+    background-color:rgb(1, 1, 2);
+}
+
+</style>
+
+</head>
+<body>
+<div class="card">
+<div class="smart">
+    <b>SMART WEIGHING MACHINE</b>
+</div>
+<button type="button" onclick="window.location.href = 'demo.html';">Price Details</button>
+<button type="button" onclick="init()">Add Item</button>
+<div id="webcam-container"></div>
+<div id="label-container"></div>
+<div id="bill-container"></div>
+<button onclick="printDiv('bill-container')">Bill Now</button>
+</div>
+
+<script>
+// The link to your model provided by the Teachable Machine export panel
+const URL = "https://teachablemachine.withgoogle.com/models/2OE0mdvyM/";
+
+let model, webcam, labelContainer, maxPredictions;
+let billItems = [];
+let lastRecordedWeight = null; // Variable to store the last recorded weight
+
+// Load the image model and setup the webcam
+async function init() {
+try {
+const modelURL = URL + "model.json";
+const metadataURL = URL + "metadata.json";
+
+console.log("Loading model...");
+model = await tmImage.load(modelURL, metadataURL);
+maxPredictions = model.getTotalClasses();
+
+console.log("Setting up webcam...");
+const flip = true; // Whether to flip the webcam
+webcam = new tmImage.Webcam(200, 200, flip); // Width, height, flip
+await webcam.setup(); // Request access to the webcam
+await webcam.play();
+loop(); // Start the loop immediately
+
+// Append elements to the DOM
+const webcamContainer = document.getElementById("webcam-container");
+webcamContainer.innerHTML = ""; // Clear previous content
+webcamContainer.appendChild(webcam.canvas);
+
+labelContainer = document.getElementById("label-container");
+for (let i = 0; i < maxPredictions; i++) { // And class labels
+labelContainer.appendChild(document.createElement("div"));
+}
+
+// Fetch weight data from Supabase
+fetchSupabaseData();
+} catch (error) {
+console.error("Error initializing:", error);
+alert("Error initializing webcam. Please check console for details.");
+}
+}
+
+async function loop() {
+webcam.update(); // Update the webcam frame
+await predict();
+setTimeout(loop, 20); // Adjust the delay (1000 ms = 1 second) for desired FPS
+}
+
+// Function to display a message
+function displayMessage(message) {
+alert(message);
+}
+
+// Function to add item to bill
+function addToBill(itemName, itemPrice, itemWeight) {
+billItems.push({ name: itemName, price: itemPrice, weight: itemWeight });
+}
+
+function displayCart() {
+const billContainer = document.getElementById("bill-container");
+let billHTML = "<h2>Cart</h2>";
+let totalAmount = 0;
+
+billItems.forEach(item => {
+const itemCost = item.price * item.weight;
+totalAmount += itemCost;
+billHTML += `<div>${item.name}: ₹${itemCost.toFixed(2)} (${item.weight.toFixed(2)} kg)</div>`;
+});
+
+billHTML += `<div><strong>Total: ₹${totalAmount.toFixed(2)}</strong></div>`;
+
+// Generate QR code with bill information
+const qrText = `Bill Total: ₹${totalAmount.toFixed(2)}`;
+const qrCodeImage = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${qrText}`;
+billHTML += `<div><img src="${qrCodeImage}" alt="QR Code"></div>`;
+
+billContainer.innerHTML = billHTML;
+}
+
+
+
+// Run the webcam image through the image model
+async function predict() {
+if (!model || !webcam) return; // Exit if model or webcam is not initialized
+// Predict can take in an image, video, or canvas HTML element
+const prediction = await model.predict(webcam.canvas);
+const threshold = 0.99; // Adjust this threshold as needed
+const predictedItem = prediction.find(pred => pred.probability > threshold);
+if (predictedItem) {
+const classPrediction = predictedItem.className + ": " + predictedItem.probability.toFixed(2);
+labelContainer.innerHTML = classPrediction;
+
+// If a fruit is detected with a probability above 0.85, alert the user to add it to cart
+if (predictedItem.probability > threshold) {
+const itemName = predictedItem.className;
+const itemPrice = itemName === "apple" ? 100 : 60; // Price per kg for apple: Rs. 100, for banana: Rs. 60
+const shouldAddToCart = window.confirm(`Fruit detected with high probability!\n\nDetected fruit: ${itemName}\nWeight on the sensor: ${lastRecordedWeight} kg\nCost: ₹${(lastRecordedWeight * itemPrice).toFixed(2)}\n\nDo you want to add it to cart?`);
+
+if (shouldAddToCart) {
+addToBill(itemName, itemPrice, lastRecordedWeight); // Add the detected item to the cart
+displayCart(); // Display the cart
+} else {
+labelContainer.innerHTML = ""; // Clear label container if the user cancels
+}
+}
+} else {
+labelContainer.innerHTML = "";
+}
+}
+
+// Fetch weight data from Supabase
+function fetchSupabaseData() {
+const supabaseUrl = "https://fwnwsgwxofkspxidiipf.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3bndzZ3d4b2Zrc3B4aWRpaXBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTE3MzIzNDYsImV4cCI6MjAyNzMwODM0Nn0.QYN5Cjb4YNmO9x8h2XlI0-D5cq6sG8dKqM5ip7R-VvE";
+
+fetch(`${supabaseUrl}/rest/v1/weights`, {
+headers: {
+"apikey": supabaseKey,
+"Content-Type": "application/json",
+}
+})
+.then(response => response.json())
+.then(data => {
+if (data && data.length > 0) {
+lastRecordedWeight = data[data.length - 1].weight/1000; // Get the last recorded weight from the Supabase data
+}
+})
+.catch(error => console.error("Failed to fetch Supabase data", error));
+}
+</script>
+
+<script type="text/javascript">
+function printDiv(divName) {
+var printContents = document.getElementById(divName).innerHTML;
+var originalContents = document.body.innerHTML;
+
+document.body.innerHTML = printContents;
+
+window.print();
+
+document.body.innerHTML = originalContents;
+}
+</script>
+<script type="module">
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+apiKey: "AIzaSyAY__WJMqb1tg1xDyj6_zKR2lHLVI3Rd3A",
+authDomain: "autobill-123.firebaseapp.com",
+projectId: "autobill-123",
+storageBucket: "autobill-123.appspot.com",
+messagingSenderId: "940789856058",
+appId: "1:940789856058:web:0e99d0874caa6a42c74203"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+</script>
+
+</body>
+
+</html>
